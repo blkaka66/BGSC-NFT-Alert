@@ -1,0 +1,14 @@
+{
+  "name": "bgsc-monitor",
+  "version": "1.0.0",
+  "description": "NFT 가격 감시 및 텔레그램 알림 봇",
+  "main": "monitor.js",
+  "scripts": {
+    "start": "node monitor.js"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "dotenv": "^16.5.0",
+    "puppeteer": "^24.9.0"
+  }
+}
