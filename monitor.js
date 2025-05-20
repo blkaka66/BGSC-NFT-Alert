@@ -16,52 +16,62 @@ const notified = {};
 async function sendTelegramMessage(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
   try {
-    await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message });
+    await axios.post(url, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: message,
+    });
   } catch (err) {
-    console.error("텔레그램 전송 실패:", err.message);
+    console.error("텔레그램 메시지 전송 실패:", err.message);
   }
 }
 
-const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+function delay(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
 
-async function clickFilterButton() {
+async function clickFilterToggle() {
   return await page.evaluate(() => {
-    const btn = [...document.querySelectorAll("button")].find(
-      (el) => el.textContent.trim() === "필터"
+    const btn = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent.trim() === "필터"
     );
-    if (!btn) return false;
-    btn.click();
-    return true;
+    if (btn) {
+      btn.click();
+      return true;
+    }
+    return false;
   });
 }
 
-async function clickGradeButton(label) {
+async function clickGradeButton(grade) {
   return await page.evaluate((grade) => {
-    const btn = [...document.querySelectorAll("button")].find(
-      (el) => el.textContent.trim() === grade
+    const h2 = Array.from(document.querySelectorAll("h2")).find((el) =>
+      el.textContent.includes("희귀도 필터")
     );
-    if (!btn) return false;
-    btn.click();
-    return true;
-  }, label);
+    if (!h2 || !h2.nextElementSibling) return false;
+
+    const buttons = Array.from(
+      h2.nextElementSibling.querySelectorAll("button")
+    );
+    const target = buttons.find((btn) => btn.textContent.trim() === grade);
+    if (target) {
+      target.click();
+      return true;
+    }
+    return false;
+  }, grade);
 }
 
 async function checkPricesAndNotify(grade) {
-  const prices = await page.evaluate(() => {
-    return [...document.querySelectorAll(".enhanced-nft-price span")]
-      .map((el) => el.textContent.trim())
-      .filter((text) => text.includes("BGSC"))
-      .map((text) => {
-        const price = parseInt(text.replace(/[^0-9]/g, ""), 10);
-        return isNaN(price) ? null : price;
-      })
-      .filter((price) => price !== null);
-  });
+  const prices = await page.$$eval(".enhanced-nft-price span", (spans) =>
+    spans
+      .map((span) => span.textContent.trim())
+      .filter((txt) => txt.includes("BGSC"))
+      .map((txt) => parseInt(txt.replace(/[^0-9]/g, ""), 10))
+  );
 
   for (const price of prices) {
-    console.log(price)
     if (price > 0 && price <= PRICE_THRESHOLD && notified[grade] !== price) {
-      const msg = `[알림] ${grade} 등급 NFT 가격 ${price.toLocaleString()} BGSC 이하 감지됨`;
+      const msg = `[감지됨] ${grade} 등급 NFT 가격 ${price.toLocaleString()} BGSC 이하`;
       await sendTelegramMessage(msg);
       notified[grade] = price;
       console.log(msg);
@@ -75,17 +85,19 @@ async function checkOnce() {
   try {
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
 
-    if (!(await clickFilterButton())) {
+    const filterOk = await clickFilterToggle();
+    if (!filterOk) {
       console.warn("필터 버튼 클릭 실패");
       return;
     }
-
     await delay(1000);
 
     for (const grade of GRADES) {
       const clicked = await clickGradeButton(grade);
-      console.log(clicked ? `${grade} 클릭됨` : `${grade} 버튼 클릭 실패`);
-      if (!clicked) continue;
+      if (!clicked) {
+        console.warn(`${grade} 버튼 클릭 실패`);
+        continue;
+      }
 
       await delay(2000);
 
@@ -93,7 +105,7 @@ async function checkOnce() {
       if (found) return;
     }
   } catch (err) {
-    console.error("에러 발생:", err.message);
+    console.error("오류 발생:", err.message);
   }
 }
 
