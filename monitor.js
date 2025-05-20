@@ -4,15 +4,14 @@ const axios = require("axios");
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const CHECK_INTERVAL = 3 * 1000; // 3초
+const CHECK_INTERVAL = 3000;
 
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
 const PRICE_THRESHOLD = 10000000;
 
-const notified = {};
-
 let browser, page;
+const notified = {};
 
 async function sendTelegramMessage(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
@@ -26,50 +25,64 @@ async function sendTelegramMessage(message) {
   }
 }
 
-async function clickGradeButton(page, grade) {
+async function clickButtonByText(text) {
   const buttons = await page.$$("button");
   for (const btn of buttons) {
-    const text = await page.evaluate((el) => el.innerText.trim(), btn);
-    if (text === grade) {
+    const btnText = await page.evaluate((el) => el.textContent.trim(), btn);
+    if (btnText === text) {
       await btn.click();
-      await page.waitForTimeout(1500);
       return true;
     }
   }
   return false;
 }
 
-async function extractLowestPrice(page) {
-  const prices = await page.$$eval(".enhanced-nft-price span", (spans) =>
-    spans.map((el) =>
-      parseFloat(el.innerText.replace(/,/g, "").replace("BGSC", "").trim())
-    )
-  );
-  return Math.min(...prices.filter((n) => !isNaN(n)));
+async function checkPricesAndNotify(grade) {
+  const spans = await page.$$(".enhanced-nft-price span");
+  for (const span of spans) {
+    const text = await page.evaluate((el) => el.textContent, span);
+    if (!text.includes("BGSC")) continue;
+    const number = parseInt(text.replace(/[^0-9]/g, ""), 10);
+    if (number > 0 && number <= PRICE_THRESHOLD && notified[grade] !== number) {
+      const message = `[감지됨] ${grade} 등급 NFT 가격 ${number.toLocaleString()} BGSC 이하`;
+      await sendTelegramMessage(message);
+      notified[grade] = number;
+      return true;
+    }
+  }
+  return false;
 }
 
-async function checkNFTPrices() {
+async function delay(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+async function checkOnce() {
   try {
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
 
+    // 필터 버튼 클릭
+    const filterClicked = await clickButtonByText("필터");
+    if (!filterClicked) {
+      console.warn("필터 버튼 클릭 실패");
+      return;
+    }
+    await delay(1000);
+
     for (const grade of GRADES) {
-      const clicked = await clickGradeButton(page, grade);
+      const clicked = await clickButtonByText(grade);
       if (!clicked) {
         console.warn(`${grade} 버튼 클릭 실패`);
         continue;
       }
 
-      const price = await extractLowestPrice(page);
-      console.log(`[${grade}] 최저가: ${price} BGSC`);
+      await delay(2000);
 
-      if (price <= PRICE_THRESHOLD && notified[grade] !== price) {
-        const message = `[감지됨] ${grade} 등급 NFT가 ${price} BGSC 입니다.`;
-        await sendTelegramMessage(message);
-        notified[grade] = price;
-      }
+      const found = await checkPricesAndNotify(grade);
+      if (found) return;
     }
-  } catch (error) {
-    console.error("NFT 가격 확인 중 오류:", error.message);
+  } catch (e) {
+    console.error("오류:", e.message);
   }
 }
 
@@ -80,7 +93,6 @@ async function checkNFTPrices() {
   });
   page = await browser.newPage();
 
-  await checkNFTPrices(); // 초기 1회 실행
-
-  setInterval(checkNFTPrices, CHECK_INTERVAL);
+  await checkOnce();
+  setInterval(checkOnce, CHECK_INTERVAL);
 })();
