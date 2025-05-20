@@ -7,11 +7,12 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL = 3000; // 3초마다
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["브론즈", "실버", "골드", "플래티넘", "다이아몬드"];
-const PRICE_THRESHOLD = 1_0000_000; // 1,0000,000 BGSC 이하 알림
+const PRICE_THRESHOLD = 10_000_000; // 10,000,000 BGSC 이하 알림
 
 let browser, page;
 const notified = {}; // { grade: lastNotifiedPrice }
 
+/** 텔레그램 메시지 전송 */
 async function sendTelegramMessage(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
   try {
@@ -24,56 +25,62 @@ async function sendTelegramMessage(message) {
   }
 }
 
+/** 지연 함수 */
 async function delay(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-/**
- * 버튼 텍스트로 클릭 (필터 토글 버튼 등에 사용)
- */
+/** “필터” 버튼 클릭 (토글) */
 async function clickButtonByText(text) {
   const buttons = await page.$$("button");
   for (const btn of buttons) {
     const btnText = await page.evaluate((el) => el.textContent.trim(), btn);
     if (btnText === text) {
       await btn.click();
+      console.log(`✔️ "${text}" 버튼 클릭`);
       return true;
     }
   }
+  console.warn(`⚠️ "${text}" 버튼 클릭 실패`);
   return false;
 }
 
 /**
- * 희귀도 필터 영역에서 레이블로 해당 등급 버튼을 찾아 클릭
+ * “희귀도 필터” 제목 h2를 찾아, 그 다음 형제 컨테이너의 버튼 중
+ * label 텍스트와 매칭되는 버튼을 클릭
  */
 async function clickRarityFilter(label) {
-  // “희귀도 필터” 섹션 로딩 대기
-  await page.waitForSelector('h2:text("희귀도 필터") + div.flex', {
-    timeout: 5000,
-  });
-  // 바로 다음 div.flex 안의 모든 button
-  const buttons = await page.$$('h2:text("희귀도 필터") + div.flex button');
-  for (const btn of buttons) {
-    const span = await btn.$("span.relative.z-10");
-    const txt = span
-      ? await page.evaluate((el) => el.textContent.trim(), span)
-      : "";
-    if (txt === label) {
-      await btn.click();
-      console.log(`${label} 필터 클릭`);
-      return true;
+  const headings = await page.$$("h2");
+  for (const h2 of headings) {
+    const txt = await page.evaluate((el) => el.textContent.trim(), h2);
+    if (txt.includes("희귀도 필터")) {
+      // h2 다음 형제 요소(버튼 컨테이너)
+      const containerHandle = await page.evaluateHandle(
+        (el) => el.nextElementSibling,
+        h2
+      );
+      const buttons = await containerHandle.$$("button");
+      for (const btn of buttons) {
+        const span = await btn.$("span.relative.z-10");
+        const btnText = span
+          ? await page.evaluate((el) => el.textContent.trim(), span)
+          : "";
+        if (btnText === label) {
+          await btn.click();
+          console.log(`✔️ "${label}" 필터 클릭됨`);
+          return true;
+        }
+      }
     }
   }
-  console.warn(`${label} 필터 버튼을 찾지 못함`);
+  console.warn(`⚠️ "${label}" 필터 버튼을 찾지 못함`);
   return false;
 }
 
 /**
- * 현재 화면에 표시된 NFT 가격들 중
- * PRICE_THRESHOLD 이하가 있으면 텔레그램 알림
+ * 표시된 NFT 가격들 중, 임계값 이하가 있으면 알림
  */
 async function checkPricesAndNotify(grade) {
-  // .enhanced-nft-price 안의 숫자 텍스트(span:last-child)들
   const prices = await page.$$eval(".enhanced-nft-price span", (spans) =>
     spans
       .map((s) => s.textContent.trim())
@@ -93,31 +100,20 @@ async function checkPricesAndNotify(grade) {
   return false;
 }
 
-/**
- * 한 번 스캔
- */
+/** 한 번 스캔 */
 async function checkOnce() {
   try {
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
 
-    // 1) 필터 열기
-    if (!(await clickButtonByText("필터"))) {
-      console.warn("‘필터’ 버튼 클릭 실패");
-      return;
-    }
+    // 1) 필터 토글 열기
+    if (!(await clickButtonByText("필터"))) return;
     await delay(1000);
 
-    // 2) 등급별 순회
+    // 2) 등급별 필터 클릭 & 가격 체크
     for (const grade of GRADES) {
-      if (!(await clickRarityFilter(grade))) {
-        continue;
-      }
+      if (!(await clickRarityFilter(grade))) continue;
       await delay(2000);
-
-      if (await checkPricesAndNotify(grade)) {
-        // 한 등급에서 알림을 보냈다면 바로 종료
-        return;
-      }
+      if (await checkPricesAndNotify(grade)) return;
     }
   } catch (err) {
     console.error("체크 중 오류:", err.message);
@@ -131,8 +127,8 @@ async function checkOnce() {
   });
   page = await browser.newPage();
 
-  // 초기 한 번 실행
+  // 최초 실행
   await checkOnce();
-  // 이후 주기적으로
+  // 주기 실행
   setInterval(checkOnce, CHECK_INTERVAL);
 })();
