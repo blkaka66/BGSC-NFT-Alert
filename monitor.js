@@ -8,7 +8,7 @@ const CHECK_INTERVAL = 3 * 1000; // 3초마다 체크
 
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
-const PRICE_THRESHOLD = 1000000;
+const PRICE_THRESHOLD = 10000000;
 
 const notified = {}; // grade 별 중복 알림 방지용
 
