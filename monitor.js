@@ -4,13 +4,15 @@ const axios = require("axios");
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const CHECK_INTERVAL = 3 * 1000; // 3초마다 체크
+const CHECK_INTERVAL = 3 * 1000; // 3초
 
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
 const PRICE_THRESHOLD = 10000000;
 
-const notified = {}; // grade 별 중복 알림 방지용
+const notified = {};
+
+let browser, page;
 
 async function sendTelegramMessage(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
@@ -30,7 +32,7 @@ async function clickGradeButton(page, grade) {
     const text = await page.evaluate((el) => el.innerText.trim(), btn);
     if (text === grade) {
       await btn.click();
-      await page.waitForTimeout(1500); // 필터 반영 대기
+      await page.waitForTimeout(1500);
       return true;
     }
   }
@@ -47,12 +49,6 @@ async function extractLowestPrice(page) {
 }
 
 async function checkNFTPrices() {
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  const page = await browser.newPage();
-
   try {
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
 
@@ -74,10 +70,17 @@ async function checkNFTPrices() {
     }
   } catch (error) {
     console.error("NFT 가격 확인 중 오류:", error.message);
-  } finally {
-    await browser.close();
   }
 }
 
-checkNFTPrices(); // 시작 즉시 1회 실행
-setInterval(checkNFTPrices, CHECK_INTERVAL);
+(async () => {
+  browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+  page = await browser.newPage();
+
+  await checkNFTPrices(); // 초기 1회 실행
+
+  setInterval(checkNFTPrices, CHECK_INTERVAL);
+})();
