@@ -33,19 +33,25 @@ async function sendTelegramMessage(message) {
 
 // 필터 모달 열기
 async function openFilterModal() {
-  await page.click("button.metallic-button");
-  console.log("필터 버튼 클릭됨");
+  // (1) “필터” 텍스트를 가진 버튼만 클릭
+  await page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent.trim() === "필터"
+    );
+    if (!btn) throw new Error("필터 버튼을 찾을 수 없음");
+    btn.click();
+  });
+  console.log("✔️ 필터 버튼 클릭됨");
+
+  // (2) 페이지 전체에서 “골드” 버튼이 보일 때까지 대기
   await page.waitForFunction(
-    () => {
-      const modal = document.querySelector("wcm-modal");
-      if (!modal) return false;
-      return Array.from(modal.querySelectorAll("button")).some(
+    () =>
+      Array.from(document.querySelectorAll("button")).some(
         (b) => b.textContent.trim() === "골드"
-      );
-    },
-    { timeout: 5000 }
+      ),
+    { timeout: 10000 }
   );
-  console.log("필터 모달 열림");
+  console.log("✔️ 필터 모달 열림 (골드 버튼 확인)");
 }
 
 // 모달에서 등급 버튼 클릭
