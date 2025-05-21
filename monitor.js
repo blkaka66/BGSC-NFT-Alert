@@ -112,19 +112,27 @@ async function checkOnce() {
 // ----------------------------------
 // IIFE: 초기 실행 + 주기 실행
 (async () => {
+  console.log("3. IIFE 시작"); // 추가
   console.log("🛠️ 모니터링 서비스 시작");
-  browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  page = await browser.newPage();
+  try {
+    // try-catch로 감싸서 오류 확인
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    console.log("4. Puppeteer 브라우저 런칭 성공"); // 추가
+    page = await browser.newPage();
+    console.log("5. 새로운 페이지 생성 성공"); // 추가
 
-  // 처음 한 번
-  await checkOnce();
-
-  // 이후 주기적 실행
-  setInterval(async () => {
-    console.log("⏰ 주기적 체크 시작");
     await checkOnce();
-  }, CHECK_INTERVAL_MS);
+    console.log("6. 첫 checkOnce 실행 완료"); // 추가
+
+    setInterval(async () => {
+      console.log("⏰ 주기적 체크 시작");
+      await checkOnce();
+    }, CHECK_INTERVAL_MS);
+  } catch (e) {
+    console.error("❌ 초기화 또는 실행 중 치명적인 오류 발생:", e); // 오류를 더 자세히 출력
+    if (browser) await browser.close(); // 브라우저가 열렸다면 닫기
+  }
 })();
