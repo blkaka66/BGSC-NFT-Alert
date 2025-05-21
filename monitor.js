@@ -7,7 +7,7 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL_MS = 5000; // 5초마다 (너무 짧으면 컨텍스트가 불안정할 수 있음)
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
-const PRICE_THRESHOLD = 10_000_000; // 10,000,000 BGSC 이하 알림
+const PRICE_THRESHOLD = 10_000_00; // 10,000,00 BGSC 이하 알림
 
 let browser, page;
 const notified = {}; // { grade: lastNotifiedPrice }
@@ -71,11 +71,11 @@ async function clickRarityFilter(label) {
 /** 현재 화면 가격 검사 후 알림 */
 async function checkPricesAndNotify(grade) {
   try {
-    const prices = await page.$$eval(".enhanced-nft-price span", (spans) =>
-      spans
-        .map((s) => s.textContent.trim())
-        .filter((t) => t.includes("BGSC"))
-        .map((t) => parseInt(t.replace(/[^0-9]/g, ""), 10))
+    const prices = await page.$$eval(".enhanced-nft-price", (nodes) =>
+      nodes
+        .map((el) => el.textContent.trim())
+        .filter((text) => text.includes("BGSC"))
+        .map((text) => parseInt(text.replace(/[^0-9]/g, ""), 10))
     );
     console.log(`${grade} 단계 가격 목록:`, prices);
 
