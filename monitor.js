@@ -90,7 +90,7 @@ async function checkOnce() {
 
       // 4) 첫 매물 가격 읽어오기
       const priceText = await page.$eval(
-        ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span",
+        ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span.text-base.font-bold", // 수정된 셀렉터
         (el) => el.textContent.replace(/[^0-9]/g, "")
       );
       const price = parseInt(priceText, 10);
