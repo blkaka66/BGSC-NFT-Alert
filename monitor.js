@@ -9,6 +9,7 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL_MS = 5000;
 const TARGET_URL = "https://bugsnft.com/exchange";
 // 등급 배열
+// '브론즈', '실버' 제외하고 '골드', '플래티넘', '다이아몬드'만 포함
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
 // 알림 기준 가격
 const PRICE_THRESHOLD = 1_000_000;
@@ -30,60 +31,34 @@ async function sendTelegramMessage(message) {
 }
 
 // ----------------------------------
-// 필터 모달 열기
+// 필터 모달 열기 (이제는 단순히 필터 버튼 클릭만 담당)
 async function openFilterModal() {
-    await page.click("button.metallic-button");
-    console.log("✔️ 필터 버튼 클릭됨");
-
-    // ** wcm-modal 기다리는 로직을 제거하거나 주석 처리합니다. **
-    // await page.waitForSelector("wcm-modal", { timeout: 10000 });
-    // console.log("✔️ 필터 모달 컨테이너 감지됨");
-
-    // 페이지 전체에서 모든 버튼 텍스트를 가져와 콘솔에 출력
-    // 이 로직은 Shadow DOM 내의 버튼은 잡지 못할 수 있습니다.
-    const allButtonsInPage = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll("button"));
-        return buttons.map((b) => b.textContent.trim());
-    });
-    console.log("ALL_BUTTONS_IN_PAGE:", allButtonsInPage); // 새로운 로그 이름으로 명확히 구분
-
-    // Shadow DOM을 포함하여 '골드' 버튼을 찾도록 waitForFunction 로직 강화 (이전 코드 유지)
-    await page.waitForFunction(
-        () => {
-            const modal = document.querySelector("wcm-modal"); // 여전히 wcm-modal을 찾지만, 위에서 문제가 없었으므로 유지
-            if (!modal) return false;
-
-            let buttons = [];
-            // Shadow DOM 확인 (재귀적으로 깊이 탐색)
-            function findButtonsInShadowDomRecursive(element) {
-                if (element.shadowRoot) {
-                    buttons = buttons.concat(Array.from(element.shadowRoot.querySelectorAll("button")));
-                    Array.from(element.shadowRoot.querySelectorAll('*')).forEach(el => {
-                        findButtonsInShadowDomRecursive(el);
-                    });
-                }
-            }
-
-            findButtonsInShadowDomRecursive(modal); // wcm-modal의 Shadow DOM 탐색
-
-            if (buttons.length === 0) { // Shadow DOM에서 못 찾았다면 일반 DOM에서도 찾아봄
-                 buttons = Array.from(modal.querySelectorAll("button"));
-            }
-
-            return buttons.some((b) => b.textContent.trim() === "골드");
-        },
-        { timeout: 30000 } // 타임아웃 30초 유지
-    );
-    console.log("✔️ 필터 모달 열림");
+  await page.click("button.metallic-button");
+  console.log("✔️ 필터 버튼 클릭됨");
+  // 모달이 열리는 데 약간의 딜레이를 줍니다 (필요시)
+  await page.waitForTimeout(500); // 0.5초 대기
+  console.log("✔️ 필터 버튼 클릭 후 대기 완료"); // 로그 추가
 }
 
 // ----------------------------------
-// 희귀도 버튼 클릭
+// 희귀도 버튼 클릭 (버튼이 나타날 때까지 기다리는 로직 추가)
 async function clickRarityFilter(label) {
+  // 이제 page.evaluate 대신 Puppeteer의 waitForFunction을 사용하여 버튼이 DOM에 나타날 때까지 기다립니다.
+  await page.waitForFunction(
+    (lbl) => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      return buttons.some(
+        (b) => b.textContent.trim() === lbl && b.offsetParent !== null // offsetParent !== null은 요소가 실제로 보이는지 확인
+      );
+    },
+    { timeout: 10000 }, // 버튼이 나타날 때까지 10초 대기
+    label
+  );
+  console.log(`✔️ "${label}" 버튼이 DOM에 나타남`);
+
+  // 버튼이 나타나면 클릭
   await page.evaluate((lbl) => {
-    const modal = document.querySelector("wcm-modal");
-    if (!modal) return;
-    const btn = Array.from(modal.querySelectorAll("button")).find(
+    const btn = Array.from(document.querySelectorAll("button")).find(
       (b) => b.textContent.trim() === lbl
     );
     btn?.click();
@@ -99,33 +74,45 @@ async function checkOnce() {
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
 
     for (const grade of GRADES) {
-      console.log(`▶️ ${grade} 검사 시작`); // 1) 모달 열기
+      console.log(`▶️ ${grade} 검사 시작`);
 
-      await openFilterModal(); // 2) 버튼 클릭
+      // 1) 필터 모달 열기 (실제로는 필터 버튼 클릭)
+      await openFilterModal();
 
-      await clickRarityFilter(grade); // 3) 첫 매물이 로드될 때까지 기다리기 (순수 DOM)
+      // 2) 등급 버튼 클릭 (버튼이 나타나기를 기다림)
+      await clickRarityFilter(grade);
 
+      // 필터링 적용 후 페이지가 업데이트될 시간을 줍니다.
+      await page.waitForTimeout(1000); // 1초 대기
+
+      // 3) 첫 매물이 로드될 때까지 기다리기 (순수 DOM)
       await page.waitForFunction(
         () =>
           !!document.querySelector(
             ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span"
           ),
-        { timeout: 30000 }
-      ); // 4) 첫 매물 가격 읽어오기
+        { timeout: 30000 } // 여전히 30초 대기
+      );
+      console.log("✔️ 첫 매물 로드됨"); // 로그 추가
 
+      // 4) 첫 매물 가격 읽어오기
       const priceText = await page.$eval(
         ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span.text-base.font-bold", // 수정된 셀렉터
         (el) => el.textContent.replace(/[^0-9]/g, "")
       );
       const price = parseInt(priceText, 10);
-      console.log(`🔖 ${grade} 첫 매물 가격: ${price.toLocaleString()} BGSC`); // 5) 기준 이하이면 알림
+      console.log(`🔖 ${grade} 첫 매물 가격: ${price.toLocaleString()} BGSC`);
 
+      // 5) 기준 이하이면 알림
       if (price > 0 && price <= PRICE_THRESHOLD && notified[grade] !== price) {
         const msg = `[알림] ${grade} 등급 첫 매물 ${price.toLocaleString()} BGSC 감지됨`;
         await sendTelegramMessage(msg);
         notified[grade] = price;
-        break; // 하나 알림 보냈으면 다음 사이클까지 대기
+        // break; // 하나 알림 보냈으면 다음 사이클까지 대기 (이제 모든 등급을 순회하므로 제거)
       }
+
+      // 다음 등급을 확인하기 위해 페이지를 다시 로드하거나 필터를 초기화해야 할 수 있습니다.
+      // 현재는 grade for-loop 진입 시 page.goto를 다시 하므로 괜찮습니다.
     }
   } catch (e) {
     console.error("❌ 체크 중 오류:", e);
@@ -135,34 +122,33 @@ async function checkOnce() {
 // ----------------------------------
 // IIFE: 초기 실행 + 주기 실행
 (async () => {
-  console.log("3. IIFE 시작"); // 추가
+  console.log("3. IIFE 시작");
   console.log("🛠️ 모니터링 서비스 시작");
   try {
-    // try-catch로 감싸서 오류 확인
     browser = await puppeteer.launch({
       headless: true,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
-        "--disable-gpu", // GPU 사용 안 함
-        "--disable-dev-shm-usage", // /dev/shm 메모리 사용량 줄임
-        "--no-zygote", // 컨테이너 환경에서 유용
-        "--single-process", // 컨테이너 환경에서 유용
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--no-zygote",
+        "--single-process",
       ],
     });
-    console.log("4. Puppeteer 브라우저 런칭 성공"); // 추가
+    console.log("4. Puppeteer 브라우저 런칭 성공");
     page = await browser.newPage();
-    console.log("5. 새로운 페이지 생성 성공"); // 추가
+    console.log("5. 새로운 페이지 생성 성공");
 
     await checkOnce();
-    console.log("6. 첫 checkOnce 실행 완료"); // 추가
+    console.log("6. 첫 checkOnce 실행 완료");
 
     setInterval(async () => {
       console.log("⏰ 주기적 체크 시작");
       await checkOnce();
     }, CHECK_INTERVAL_MS);
   } catch (e) {
-    console.error("❌ 초기화 또는 실행 중 치명적인 오류 발생:", e); // 오류를 더 자세히 출력
-    if (browser) await browser.close(); // 브라우저가 열렸다면 닫기
+    console.error("❌ 초기화 또는 실행 중 치명적인 오류 발생:", e);
+    if (browser) await browser.close();
   }
 })();
