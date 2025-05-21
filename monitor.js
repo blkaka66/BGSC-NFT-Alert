@@ -1,10 +1,40 @@
-/** 필터 모달 열고 희귀도 버튼 보일 때까지 대기 */
-async function openFilterModal() {
-  // 1) “필터” 버튼 클릭
-  await page.click("button.metallic-button");
-  console.log("✔️ 필터 버튼 클릭됨");
+require("dotenv").config();
+const puppeteer = require("puppeteer");
+const axios = require("axios");
 
-  // 2) wcm-modal 안에 버튼이 렌더링될 때까지 대기
+// ----------------------------------
+// 상수 선언
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const CHECK_INTERVAL_MS = 5000;
+const TARGET_URL = "https://bugsnft.com/exchange";
+// 등급 배열
+const GRADES = ["골드", "플래티넘", "다이아몬드"];
+// 알림 기준 가격
+const PRICE_THRESHOLD = 1_000_000;
+
+let browser, page;
+const notified = {};
+
+// ----------------------------------
+// 함수 정의
+
+// Telegram 메시지 전송
+async function sendTelegramMessage(message) {
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+      { chat_id: TELEGRAM_CHAT_ID, text: message }
+    );
+  } catch (err) {
+    console.error("텔레그램 전송 오류:", err.message);
+  }
+}
+
+// 필터 모달 열기
+async function openFilterModal() {
+  await page.click("button.metallic-button");
+  console.log("필터 버튼 클릭됨");
   await page.waitForFunction(
     () => {
       const modal = document.querySelector("wcm-modal");
@@ -15,11 +45,10 @@ async function openFilterModal() {
     },
     { timeout: 5000 }
   );
-
-  console.log("✔️ 필터 모달 열림");
+  console.log("필터 모달 열림");
 }
 
-/** 모달에서 희귀도 버튼 클릭 */
+// 모달에서 등급 버튼 클릭
 async function clickRarityFilter(label) {
   await page.evaluate((lbl) => {
     const modal = document.querySelector("wcm-modal");
@@ -29,10 +58,10 @@ async function clickRarityFilter(label) {
     );
     btn?.click();
   }, label);
-  console.log(`✔️ "${label}" 버튼 클릭됨`);
+  console.log(`${label} 버튼 클릭됨`);
 }
 
-/** NFT 카드 그리드 끝까지 스크롤 */
+// 그리드 끝까지 스크롤
 async function scrollGridToEnd() {
   await page.evaluate(async () => {
     const grid = document.querySelector(
@@ -46,10 +75,10 @@ async function scrollGridToEnd() {
       await new Promise((r) => setTimeout(r, 500));
     } while (grid.scrollHeight !== prev);
   });
-  console.log("✔️ 그리드 끝까지 스크롤 완료");
+  console.log("그리드 끝까지 스크롤 완료");
 }
 
-/** 가격 검사 */
+// 가격 검사 후 알림
 async function checkPricesAndNotify(grade) {
   const prices = await page.$$eval(
     ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span",
@@ -72,28 +101,40 @@ async function checkPricesAndNotify(grade) {
   return false;
 }
 
-(async () => {
-  console.log("🚀 모니터링 서비스 시작"); // <- 시작 확인
+// 한 사이클 검사
+async function checkOnce() {
+  console.log("checkOnce 시작");
+  try {
+    await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
+    await openFilterModal();
 
+    for (const grade of GRADES) {
+      await clickRarityFilter(grade);
+      await scrollGridToEnd();
+      const notifiedNow = await checkPricesAndNotify(grade);
+      if (notifiedNow) break;
+      await openFilterModal();
+    }
+  } catch (e) {
+    console.error("체크 중 오류:", e);
+  }
+}
+
+// ----------------------------------
+// IIFE: 초기 실행 + 주기 실행
+(async () => {
+  console.log("모니터링 서비스 시작");
   browser = await puppeteer.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
   page = await browser.newPage();
 
-  // 1) 즉시 한 번 실행 (await 해도 되고, 안 해도 무방)
+  // 초기 한 번
   await checkOnce();
-
-  // 2) 이후엔 setInterval로 주기적 실행
+  // 이후 주기적
   setInterval(async () => {
-    console.log("⏰ 주기적 체크 시작");
-    try {
-      await checkOnce();
-    } catch (e) {
-      console.error("주기적 체크 중 오류:", e);
-    }
+    console.log("주기적 체크 시작");
+    await checkOnce();
   }, CHECK_INTERVAL_MS);
-
-  // IIFE 리턴 후에도 active 상태를 유지하려면,
-  // Node.js 이벤트 루프에 살아있는 타이머(setInterval)가 하나 이상 있어야 합니다.
 })();
