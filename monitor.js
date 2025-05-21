@@ -39,12 +39,16 @@ async function clickFilterToggle() {
   return clicked;
 }
 
-/** “희귀도 필터” 영역이 로드될 때까지 대기 */
+/** “희귀도 필터” 패널 로드 대기 */
 async function waitForRarityPanel() {
   try {
-    await page.waitForXPath("//h2[contains(text(), '희귀도 필터')]", {
-      timeout: 5000,
-    });
+    await page.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll("h2")).some((el) =>
+          el.innerText.includes("희귀도 필터")
+        ),
+      { timeout: 5000 }
+    );
     console.log("✔️ 희귀도 필터 패널 로드 완료");
     return true;
   } catch {
@@ -54,13 +58,13 @@ async function waitForRarityPanel() {
 }
 
 /**
- * 희귀도 필터에서 label 버튼을 찾아 클릭
- * + 디버깅: 실제 버턴 목록을 콘솔에 출력
+ * 희귀도 필터에서 label 버튼 클릭
+ * + 디버깅: 실제 버튼 목록 출력
  */
 async function clickRarityFilter(label) {
   const clicked = await page.evaluate((label) => {
     const h2 = [...document.querySelectorAll("h2")].find((el) =>
-      el.textContent.includes("희귀도 필터")
+      el.innerText.includes("희귀도 필터")
     );
     if (!h2 || !h2.nextElementSibling) return false;
     const panel = h2.nextElementSibling;
@@ -69,9 +73,9 @@ async function clickRarityFilter(label) {
       "[디버깅] 희귀도 필터 버튼 목록:",
       buttons.map((b) => b.textContent.trim())
     );
-    const target = buttons.find((b) => b.textContent.trim() === label);
-    if (!target) return false;
-    target.click();
+    const btn = buttons.find((b) => b.textContent.trim() === label);
+    if (!btn) return false;
+    btn.click();
     return true;
   }, label);
 
@@ -88,7 +92,6 @@ async function checkPricesAndNotify(grade) {
       .map((card) => {
         const spans = card.querySelectorAll("span");
         if (spans.length < 2) return null;
-        // 두번째 span 을 가격으로 간주
         const txt = spans[1].textContent || "";
         const num = parseInt(txt.replace(/[^0-9]/g, ""), 10);
         return isNaN(num) ? null : num;
@@ -121,13 +124,8 @@ async function checkOnce() {
     // 3) 등급별 순회
     for (const grade of GRADES) {
       if (!(await clickRarityFilter(grade))) continue;
-      // 버튼 클릭 후 내용 로드 대기
       await delay(2000);
-
-      if (await checkPricesAndNotify(grade)) {
-        // 알림 보냈으면 이 사이클 종료
-        return;
-      }
+      if (await checkPricesAndNotify(grade)) return;
     }
   } catch (err) {
     console.error("체크 중 오류:", err);
