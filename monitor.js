@@ -7,7 +7,7 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL = 3000; // 3초마다
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
-const PRICE_THRESHOLD = 10_000_000; // 10,000,000 BGSC 이하 알림
+const PRICE_THRESHOLD = 1000000; // 10,000,00 BGSC 이하 알림
 
 let browser, page;
 const notified = {}; // { grade: lastNotifiedPrice }
