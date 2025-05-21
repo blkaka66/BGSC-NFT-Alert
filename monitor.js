@@ -1,96 +1,63 @@
-require("dotenv").config();
-const puppeteer = require("puppeteer");
-const axios = require("axios");
+/** 필터 모달 열고 희귀도 버튼 보일 때까지 대기 */
+async function openFilterModal() {
+  // 1) “필터” 버튼 클릭
+  await page.click("button.metallic-button");
+  console.log("✔️ 필터 버튼 클릭됨");
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const CHECK_INTERVAL_MS = 5000;
-const TARGET_URL = "https://bugsnft.com/exchange";
-const GRADES = ["골드", "플래티넘", "다이아몬드"];
-const PRICE_THRESHOLD = 1_000_000;
-
-let browser, page;
-const notified = {};
-
-// Telegram 메시지 전송
-async function sendTelegramMessage(message) {
-  try {
-    await axios.post(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-      { chat_id: TELEGRAM_CHAT_ID, text: message }
-    );
-  } catch (err) {
-    console.error("텔레그램 전송 오류:", err.message);
-  }
-}
-
-// 필터 패널 한 번만 열기 (page.$x 제거)
-async function ensureFilterOpen() {
-  const isOpen = await page
-    .$eval(".filter-panel.open", () => true)
-    .catch(() => false);
-
-  if (!isOpen) {
-    const clicked = await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll("button")).find(
-        (b) => b.textContent.trim() === "필터"
+  // 2) wcm-modal 안에 버튼이 렌더링될 때까지 대기
+  await page.waitForFunction(
+    () => {
+      const modal = document.querySelector("wcm-modal");
+      if (!modal) return false;
+      return Array.from(modal.querySelectorAll("button")).some(
+        (b) => b.textContent.trim() === "골드"
       );
-      if (!btn) return false;
-      btn.click();
-      return true;
-    });
-    if (!clicked) {
-      console.warn("⚠️ 필터 버튼을 찾지 못함");
-      return;
-    }
-    await page.waitForSelector(".filter-panel.open", { timeout: 5000 });
-    console.log("필터 패널 열림");
-  }
+    },
+    { timeout: 5000 }
+  );
+
+  console.log("✔️ 필터 모달 열림");
 }
 
-// 무한 스크롤로 전체 아이템 로드
-async function scrollToEnd() {
-  await page.evaluate(async () => {
-    const sc = document.querySelector(".nft-list-container");
-    let prevHeight = 0;
-    while (sc.scrollHeight !== prevHeight) {
-      prevHeight = sc.scrollHeight;
-      sc.scrollTop = sc.scrollHeight;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  });
-}
-
-// 희귀도 필터 클릭 (evaluate 내부에서 처리)
+/** 모달에서 희귀도 버튼 클릭 */
 async function clickRarityFilter(label) {
   await page.evaluate((lbl) => {
-    const h2 = Array.from(document.querySelectorAll("h2")).find((el) =>
-      el.textContent.includes("희귀도 필터")
+    const modal = document.querySelector("wcm-modal");
+    if (!modal) return;
+    const btn = Array.from(modal.querySelectorAll("button")).find(
+      (b) => b.textContent.trim() === lbl
     );
-    const btn = h2?.nextElementSibling
-      .querySelectorAll("button")
-      .item(
-        Array.from(h2.nextElementSibling.querySelectorAll("button")).findIndex(
-          (b) => b.textContent.trim() === lbl
-        )
-      );
     btn?.click();
   }, label);
-  await page
-    .waitForSelector(".enhanced-nft-card", { timeout: 5000 })
-    .catch(() => console.warn(`${label} 카드 로드 실패`));
-  console.log(`${label} 버튼 클릭됨`);
+  console.log(`✔️ "${label}" 버튼 클릭됨`);
 }
 
-// 가격 검사 후 알림
+/** NFT 카드 그리드 끝까지 스크롤 */
+async function scrollGridToEnd() {
+  await page.evaluate(async () => {
+    const grid = document.querySelector(
+      ".grid.grid-cols-1.sm\\:grid-cols-2.lg\\:grid-cols-3.xl\\:grid-cols-4"
+    );
+    if (!grid) return;
+    let prev;
+    do {
+      prev = grid.scrollHeight;
+      grid.scrollTop = prev;
+      await new Promise((r) => setTimeout(r, 500));
+    } while (grid.scrollHeight !== prev);
+  });
+  console.log("✔️ 그리드 끝까지 스크롤 완료");
+}
+
+/** 가격 검사 */
 async function checkPricesAndNotify(grade) {
   const prices = await page.$$eval(
     ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span",
-    (spans) =>
-      spans
-        .map((s) => s.textContent.replace(/[^0-9]/g, ""))
-        .filter((t) => t)
-        .map((t) => parseInt(t, 10))
+    (els) =>
+      els
+        .map((el) => el.textContent.replace(/[^0-9]/g, ""))
+        .filter((txt) => txt)
+        .map((txt) => parseInt(txt, 10))
   );
   console.log(`${grade} 단계 가격 목록:`, prices);
 
@@ -108,25 +75,25 @@ async function checkPricesAndNotify(grade) {
 async function checkOnce() {
   try {
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
-    await ensureFilterOpen();
-    await scrollToEnd();
 
+    // 필터 모달 열기
+    await openFilterModal();
+
+    // 등급별 필터 & 스크롤 & 가격 검사
     for (const grade of GRADES) {
       await clickRarityFilter(grade);
+      // 모달 닫히고 그리드 갱신될 때 잠시 대기
+      await page.waitForTimeout(1000);
+
+      await scrollGridToEnd();
       if (await checkPricesAndNotify(grade)) break;
+
+      // 다음 등급 위해 다시 모달 열기
+      await openFilterModal();
     }
-  } catch (err) {
-    console.error("체크 중 오류:", err.message);
+  } catch (e) {
+    console.error("체크 중 오류:", e.message);
   } finally {
     setTimeout(checkOnce, CHECK_INTERVAL_MS);
   }
 }
-
-(async () => {
-  browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  page = await browser.newPage();
-  await checkOnce();
-})();
