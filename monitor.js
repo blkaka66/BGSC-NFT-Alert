@@ -73,27 +73,38 @@ async function checkPricesAndNotify(grade) {
 }
 
 async function checkOnce() {
+  console.log("🚀 checkOnce 시작"); // ← 첫 로그
   try {
+    console.log("➡️ TARGET_URL로 이동 중…");
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
+    console.log("✅ 페이지 로드 완료");
 
-    // 필터 모달 열기
+    console.log("➡️ 필터 모달 열기 시도");
     await openFilterModal();
 
-    // 등급별 필터 & 스크롤 & 가격 검사
     for (const grade of GRADES) {
+      console.log(`➡️ ${grade} 필터 클릭 시도`);
       await clickRarityFilter(grade);
-      // 모달 닫히고 그리드 갱신될 때 잠시 대기
-      await page.waitForTimeout(1000);
 
+      console.log("➡️ 그리드 끝까지 스크롤");
       await scrollGridToEnd();
-      if (await checkPricesAndNotify(grade)) break;
 
-      // 다음 등급 위해 다시 모달 열기
+      console.log("➡️ 가격 검사 중:", grade);
+      const notifiedNow = await checkPricesAndNotify(grade);
+      console.log(
+        `${grade} 검사 결과:`,
+        notifiedNow ? "알림 보냄" : "조건 불만족"
+      );
+
+      if (notifiedNow) break;
+
+      console.log("➡️ 다음 등급을 위해 필터 모달 재오픈");
       await openFilterModal();
     }
   } catch (e) {
-    console.error("체크 중 오류:", e.message);
+    console.error("체크 중 치명적 오류:", e);
   } finally {
+    console.log(`⏳ ${CHECK_INTERVAL_MS}ms 후 재실행 예약`);
     setTimeout(checkOnce, CHECK_INTERVAL_MS);
   }
 }
