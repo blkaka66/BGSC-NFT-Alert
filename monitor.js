@@ -29,49 +29,87 @@ async function sendTelegramMessage(message) {
   }
 }
 
+// ----------------------------------
 // 필터 모달 열기
 async function openFilterModal() {
   await page.click("button.metallic-button");
   console.log("✔️ 필터 버튼 클릭됨");
 
-  // wcm-modal이 나타날 때까지 기다림
+  // **중요: 모달이 나타날 때까지 충분히 기다림**
+  // wcm-modal이 직접 보이지 않는다면, 모달의 배경이나 다른 고유한 요소를 기다려야 할 수도 있습니다.
+  // 현재로서는 일단 wcm-modal을 기다리는 로직을 유지하면서,
+  // 내부 탐색을 강화하겠습니다.
   await page.waitForSelector("wcm-modal", { timeout: 10000 });
   console.log("✔️ 필터 모달 컨테이너 감지됨");
 
-  // Shadow DOM 내부 탐색 로직 추가
   const buttonTexts = await page.evaluate(async () => {
     const modal = document.querySelector("wcm-modal");
-    if (!modal) return ["모달을 찾을 수 없습니다."];
-
-    // wcm-modal에 shadowRoot가 있는지 확인
-    if (modal.shadowRoot) {
-      const buttons = Array.from(modal.shadowRoot.querySelectorAll("button"));
-      return buttons.map((b) => b.textContent.trim());
-    } else {
-      // Shadow DOM이 없다면 일반 DOM에서 다시 시도 (안전 장치)
-      const buttons = Array.from(modal.querySelectorAll("button"));
-      return buttons.map((b) => b.textContent.trim());
+    if (!modal) {
+      // 만약 wcm-modal이 없으면 body에서 모든 버튼을 찾아본다 (디버깅용)
+      const allButtonsInBody = Array.from(document.querySelectorAll("button"));
+      console.log(
+        "DEBUG: wcm-modal 없음. body 내 모든 버튼:",
+        allButtonsInBody.map((b) => b.textContent.trim())
+      );
+      return ["모달을 찾을 수 없습니다."];
     }
+
+    let buttons = [];
+    // Shadow DOM 확인 (재귀적으로 깊이 탐색)
+    function findButtonsInShadowDom(element) {
+      if (element.shadowRoot) {
+        const shadowButtons = Array.from(
+          element.shadowRoot.querySelectorAll("button")
+        );
+        buttons = buttons.concat(shadowButtons);
+        // Shadow DOM 내부에 또 다른 Shadow DOM이 있을 수 있으므로 재귀 호출
+        Array.from(element.shadowRoot.querySelectorAll("*")).forEach((el) => {
+          findButtonsInShadowDom(el);
+        });
+      }
+    }
+
+    findButtonsInShadowDom(modal); // wcm-modal의 Shadow DOM 탐색
+
+    // Shadow DOM에 없으면 일반 DOM에서도 찾아보기 (안전 장치)
+    if (buttons.length === 0) {
+      buttons = Array.from(modal.querySelectorAll("button"));
+    }
+
+    return buttons.map((b) => b.textContent.trim());
   });
   console.log("🎨 모달 내 모든 버튼 텍스트:", buttonTexts);
 
   // wcm-modal 안에 '골드' 버튼이 렌더링될 때까지 순수 DOM으로 대기
-  // 이제는 Shadow DOM도 고려하여 waitForFunction 로직을 수정해야 합니다.
+  // Shadow DOM을 포함하여 '골드' 버튼을 찾도록 waitForFunction 로직 강화
   await page.waitForFunction(
     () => {
       const modal = document.querySelector("wcm-modal");
       if (!modal) return false;
 
       let buttons = [];
-      if (modal.shadowRoot) {
-        buttons = Array.from(modal.shadowRoot.querySelectorAll("button"));
-      } else {
+      // Shadow DOM 확인 (재귀적으로 깊이 탐색)
+      function findButtonsInShadowDomRecursive(element) {
+        if (element.shadowRoot) {
+          buttons = buttons.concat(
+            Array.from(element.shadowRoot.querySelectorAll("button"))
+          );
+          Array.from(element.shadowRoot.querySelectorAll("*")).forEach((el) => {
+            findButtonsInShadowDomRecursive(el);
+          });
+        }
+      }
+
+      findButtonsInShadowDomRecursive(modal); // wcm-modal의 Shadow DOM 탐색
+
+      if (buttons.length === 0) {
+        // Shadow DOM에서 못 찾았다면 일반 DOM에서도 찾아봄
         buttons = Array.from(modal.querySelectorAll("button"));
       }
 
       return buttons.some((b) => b.textContent.trim() === "골드");
     },
-    { timeout: 30000 } // 타임아웃은 넉넉하게 30초 유지
+    { timeout: 30000 } // 타임아웃 30초 유지
   );
   console.log("✔️ 필터 모달 열림");
 }
