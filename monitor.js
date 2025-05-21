@@ -31,21 +31,33 @@ async function sendTelegramMessage(message) {
 
 // ----------------------------------
 // 필터 모달 열기
+// openFilterModal 함수 내부
 async function openFilterModal() {
   await page.click("button.metallic-button");
   console.log("✔️ 필터 버튼 클릭됨");
 
-  // wcm-modal 안에 '골드' 버튼이 렌더링될 때까지 순수 DOM으로 대기
-  await page.waitForFunction(
-    () => {
-      const modal = document.querySelector("wcm-modal");
-      if (!modal) return false;
-      return Array.from(modal.querySelectorAll("button")).some(
-        (b) => b.textContent.trim() === "골드"
-      );
-    },
-    { timeout: 10000 }
-  );
+  // 필터 모달 자체의 존재를 기다림 (필요하다면)
+  // await page.waitForSelector('wcm-modal', { timeout: 10000 });
+
+  // '골드' 버튼의 셀렉터를 정확히 지정하여 기다림
+  // (필터 모달이 열리면 '골드' 버튼의 CSS 셀렉터를 웹 개발자 도구로 확인하여 사용)
+  // 예를 들어, 모달 내 버튼에 특정 클래스나 데이터 속성이 있다면 사용
+  await page.waitForSelector("wcm-modal button", {
+    text: "골드",
+    timeout: 30000,
+  }); // Puppeteer 21+에서 text 옵션 사용 가능
+  // 또는 구버전 Puppeteer라면:
+  // await page.waitForFunction(
+  //   () => {
+  //     const modal = document.querySelector("wcm-modal");
+  //     if (!modal) return false;
+  //     return Array.from(modal.querySelectorAll("button")).some(
+  //       (b) => b.textContent.trim() === "골드"
+  //     );
+  //   },
+  //   { timeout: 30000 }
+  // );
+
   console.log("✔️ 필터 모달 열림");
 }
 
@@ -85,7 +97,7 @@ async function checkOnce() {
           !!document.querySelector(
             ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span"
           ),
-        { timeout: 10000 }
+        { timeout: 30000 }
       );
 
       // 4) 첫 매물 가격 읽어오기
