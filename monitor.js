@@ -44,7 +44,7 @@ async function openFilterModal() {
         (b) => b.textContent.trim() === "골드"
       );
     },
-    { timeout: 5000 }
+    { timeout: 10000 }
   );
   console.log("✔️ 필터 모달 열림");
 }
@@ -85,7 +85,7 @@ async function checkOnce() {
           !!document.querySelector(
             ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span"
           ),
-        { timeout: 5000 }
+        { timeout: 10000 }
       );
 
       // 4) 첫 매물 가격 읽어오기
@@ -118,7 +118,14 @@ async function checkOnce() {
     // try-catch로 감싸서 오류 확인
     browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu", // GPU 사용 안 함
+        "--disable-dev-shm-usage", // /dev/shm 메모리 사용량 줄임
+        "--no-zygote", // 컨테이너 환경에서 유용
+        "--single-process", // 컨테이너 환경에서 유용
+      ],
     });
     console.log("4. Puppeteer 브라우저 런칭 성공"); // 추가
     page = await browser.newPage();
