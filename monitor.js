@@ -29,38 +29,47 @@ async function sendTelegramMessage(message) {
   }
 }
 
-// ----------------------------------
 // 필터 모달 열기
 async function openFilterModal() {
   await page.click("button.metallic-button");
   console.log("✔️ 필터 버튼 클릭됨");
 
-  // wcm-modal이 나타날 때까지 기다림 (선택 사항, 모달이 즉시 나타난다면 필요 없음)
-  // 이 시점에 wcm-modal이 렌더링되지 않으면 이후 버튼 탐색이 실패할 수 있음
-  await page.waitForSelector("wcm-modal", { timeout: 10000 }); // 모달 자체를 기다림
-
+  // wcm-modal이 나타날 때까지 기다림
+  await page.waitForSelector("wcm-modal", { timeout: 10000 });
   console.log("✔️ 필터 모달 컨테이너 감지됨");
 
-  // 이 부분에 추가합니다.
-  const buttonTexts = await page.evaluate(() => {
+  // Shadow DOM 내부 탐색 로직 추가
+  const buttonTexts = await page.evaluate(async () => {
     const modal = document.querySelector("wcm-modal");
     if (!modal) return ["모달을 찾을 수 없습니다."];
-    const buttons = Array.from(modal.querySelectorAll("button"));
-    return buttons.map((b) => b.textContent.trim());
+
+    // wcm-modal에 shadowRoot가 있는지 확인
+    if (modal.shadowRoot) {
+      const buttons = Array.from(modal.shadowRoot.querySelectorAll("button"));
+      return buttons.map((b) => b.textContent.trim());
+    } else {
+      // Shadow DOM이 없다면 일반 DOM에서 다시 시도 (안전 장치)
+      const buttons = Array.from(modal.querySelectorAll("button"));
+      return buttons.map((b) => b.textContent.trim());
+    }
   });
   console.log("🎨 모달 내 모든 버튼 텍스트:", buttonTexts);
-  // 여기까지 추가합니다.
-
 
   // wcm-modal 안에 '골드' 버튼이 렌더링될 때까지 순수 DOM으로 대기
-  // 이전에 사용하던 waitForFunction 로직을 다시 활성화
+  // 이제는 Shadow DOM도 고려하여 waitForFunction 로직을 수정해야 합니다.
   await page.waitForFunction(
     () => {
       const modal = document.querySelector("wcm-modal");
       if (!modal) return false;
-      return Array.from(modal.querySelectorAll("button")).some(
-        (b) => b.textContent.trim() === "골드"
-      );
+
+      let buttons = [];
+      if (modal.shadowRoot) {
+        buttons = Array.from(modal.shadowRoot.querySelectorAll("button"));
+      } else {
+        buttons = Array.from(modal.querySelectorAll("button"));
+      }
+
+      return buttons.some((b) => b.textContent.trim() === "골드");
     },
     { timeout: 30000 } // 타임아웃은 넉넉하게 30초 유지
   );
