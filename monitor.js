@@ -36,10 +36,10 @@ async function openFilterModal() {
   await page.click("button.metallic-button");
   console.log("✔️ 필터 버튼 클릭됨");
   // 모달이 열리는 데 약간의 딜레이를 줍니다 (필요시)
-  await page.waitForTimeout(500); // 0.5초 대기
+  // await page.waitForTimeout(500); // <-- 이 부분을 수정합니다.
+  await new Promise((r) => setTimeout(r, 500)); // 0.5초 대기
   console.log("✔️ 필터 버튼 클릭 후 대기 완료"); // 로그 추가
 }
-
 // ----------------------------------
 // 희귀도 버튼 클릭 (버튼이 나타날 때까지 기다리는 로직 추가)
 async function clickRarityFilter(label) {
@@ -83,7 +83,8 @@ async function checkOnce() {
       await clickRarityFilter(grade);
 
       // 필터링 적용 후 페이지가 업데이트될 시간을 줍니다.
-      await page.waitForTimeout(1000); // 1초 대기
+      // await page.waitForTimeout(1000); // <-- 이 부분을 수정합니다.
+      await new Promise((r) => setTimeout(r, 1000)); // 1초 대기
 
       // 3) 첫 매물이 로드될 때까지 기다리기 (순수 DOM)
       await page.waitForFunction(
@@ -95,24 +96,7 @@ async function checkOnce() {
       );
       console.log("✔️ 첫 매물 로드됨"); // 로그 추가
 
-      // 4) 첫 매물 가격 읽어오기
-      const priceText = await page.$eval(
-        ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span.text-base.font-bold", // 수정된 셀렉터
-        (el) => el.textContent.replace(/[^0-9]/g, "")
-      );
-      const price = parseInt(priceText, 10);
-      console.log(`🔖 ${grade} 첫 매물 가격: ${price.toLocaleString()} BGSC`);
-
-      // 5) 기준 이하이면 알림
-      if (price > 0 && price <= PRICE_THRESHOLD && notified[grade] !== price) {
-        const msg = `[알림] ${grade} 등급 첫 매물 ${price.toLocaleString()} BGSC 감지됨`;
-        await sendTelegramMessage(msg);
-        notified[grade] = price;
-        // break; // 하나 알림 보냈으면 다음 사이클까지 대기 (이제 모든 등급을 순회하므로 제거)
-      }
-
-      // 다음 등급을 확인하기 위해 페이지를 다시 로드하거나 필터를 초기화해야 할 수 있습니다.
-      // 현재는 grade for-loop 진입 시 page.goto를 다시 하므로 괜찮습니다.
+      // ... (생략) ...
     }
   } catch (e) {
     console.error("❌ 체크 중 오류:", e);
