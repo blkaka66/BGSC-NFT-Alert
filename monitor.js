@@ -31,33 +31,39 @@ async function sendTelegramMessage(message) {
 
 // ----------------------------------
 // 필터 모달 열기
-// openFilterModal 함수 내부
 async function openFilterModal() {
   await page.click("button.metallic-button");
   console.log("✔️ 필터 버튼 클릭됨");
 
-  // 필터 모달 자체의 존재를 기다림 (필요하다면)
-  // await page.waitForSelector('wcm-modal', { timeout: 10000 });
+  // wcm-modal이 나타날 때까지 기다림 (선택 사항, 모달이 즉시 나타난다면 필요 없음)
+  // 이 시점에 wcm-modal이 렌더링되지 않으면 이후 버튼 탐색이 실패할 수 있음
+  await page.waitForSelector("wcm-modal", { timeout: 10000 }); // 모달 자체를 기다림
 
-  // '골드' 버튼의 셀렉터를 정확히 지정하여 기다림
-  // (필터 모달이 열리면 '골드' 버튼의 CSS 셀렉터를 웹 개발자 도구로 확인하여 사용)
-  // 예를 들어, 모달 내 버튼에 특정 클래스나 데이터 속성이 있다면 사용
-  await page.waitForSelector("wcm-modal button", {
-    text: "골드",
-    timeout: 30000,
-  }); // Puppeteer 21+에서 text 옵션 사용 가능
-  // 또는 구버전 Puppeteer라면:
-  // await page.waitForFunction(
-  //   () => {
-  //     const modal = document.querySelector("wcm-modal");
-  //     if (!modal) return false;
-  //     return Array.from(modal.querySelectorAll("button")).some(
-  //       (b) => b.textContent.trim() === "골드"
-  //     );
-  //   },
-  //   { timeout: 30000 }
-  // );
+  console.log("✔️ 필터 모달 컨테이너 감지됨");
 
+  // 이 부분에 추가합니다.
+  const buttonTexts = await page.evaluate(() => {
+    const modal = document.querySelector("wcm-modal");
+    if (!modal) return ["모달을 찾을 수 없습니다."];
+    const buttons = Array.from(modal.querySelectorAll("button"));
+    return buttons.map((b) => b.textContent.trim());
+  });
+  console.log("🎨 모달 내 모든 버튼 텍스트:", buttonTexts);
+  // 여기까지 추가합니다.
+
+
+  // wcm-modal 안에 '골드' 버튼이 렌더링될 때까지 순수 DOM으로 대기
+  // 이전에 사용하던 waitForFunction 로직을 다시 활성화
+  await page.waitForFunction(
+    () => {
+      const modal = document.querySelector("wcm-modal");
+      if (!modal) return false;
+      return Array.from(modal.querySelectorAll("button")).some(
+        (b) => b.textContent.trim() === "골드"
+      );
+    },
+    { timeout: 30000 } // 타임아웃은 넉넉하게 30초 유지
+  );
   console.log("✔️ 필터 모달 열림");
 }
 
@@ -83,32 +89,27 @@ async function checkOnce() {
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
 
     for (const grade of GRADES) {
-      console.log(`▶️ ${grade} 검사 시작`);
+      console.log(`▶️ ${grade} 검사 시작`); // 1) 모달 열기
 
-      // 1) 모달 열기
-      await openFilterModal();
+      await openFilterModal(); // 2) 버튼 클릭
 
-      // 2) 버튼 클릭
-      await clickRarityFilter(grade);
+      await clickRarityFilter(grade); // 3) 첫 매물이 로드될 때까지 기다리기 (순수 DOM)
 
-      // 3) 첫 매물이 로드될 때까지 기다리기 (순수 DOM)
       await page.waitForFunction(
         () =>
           !!document.querySelector(
             ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span"
           ),
         { timeout: 30000 }
-      );
+      ); // 4) 첫 매물 가격 읽어오기
 
-      // 4) 첫 매물 가격 읽어오기
       const priceText = await page.$eval(
         ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span.text-base.font-bold", // 수정된 셀렉터
         (el) => el.textContent.replace(/[^0-9]/g, "")
       );
       const price = parseInt(priceText, 10);
-      console.log(`🔖 ${grade} 첫 매물 가격: ${price.toLocaleString()} BGSC`);
+      console.log(`🔖 ${grade} 첫 매물 가격: ${price.toLocaleString()} BGSC`); // 5) 기준 이하이면 알림
 
-      // 5) 기준 이하이면 알림
       if (price > 0 && price <= PRICE_THRESHOLD && notified[grade] !== price) {
         const msg = `[알림] ${grade} 등급 첫 매물 ${price.toLocaleString()} BGSC 감지됨`;
         await sendTelegramMessage(msg);
