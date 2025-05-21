@@ -8,8 +8,7 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL_MS = 5000;
 const TARGET_URL = "https://bugsnft.com/exchange";
-
-// 등급 배열 (인라인 필터 버튼 텍스트와 일치해야 함)
+// 등급 배열
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
 // 알림 기준 가격
 const PRICE_THRESHOLD = 1_000_000;
@@ -18,8 +17,6 @@ let browser, page;
 const notified = {};
 
 // ----------------------------------
-// 함수 정의
-
 // Telegram 메시지 전송
 async function sendTelegramMessage(message) {
   try {
@@ -32,73 +29,83 @@ async function sendTelegramMessage(message) {
   }
 }
 
-// 인라인 희귀도 필터 버튼 클릭
-async function clickInlineRarityFilter(label) {
-  // 필터 패널 헤더가 보일 때까지
-  await page.waitForSelector("h2:has-text('희귀도 필터')", { timeout: 5000 });
-  // 그 안의 버튼들 중 텍스트가 label 과 일치하는 걸 클릭
-  const buttons = await page.$$("div:has(h2:has-text('희귀도 필터')) button");
-  for (const btn of buttons) {
-    const txt = await page.evaluate((el) => el.textContent.trim(), btn);
-    if (txt === label) {
-      await btn.click();
-      console.log(`✔️ "${label}" 버튼 클릭됨 (인라인 필터)`);
-      return;
-    }
-  }
-  throw new Error(`"${label}" 버튼을 찾을 수 없음`);
-}
+// ----------------------------------
+// 필터 모달 열기
+async function openFilterModal() {
+  await page.click("button.metallic-button");
+  console.log("✔️ 필터 버튼 클릭됨");
 
-// 첫 매물 가격 파싱
-async function getFirstPrice() {
-  // 첫 카드의 가격 span 이 렌더링될 때까지
-  await page.waitForSelector(
-    ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span",
+  // wcm-modal 안에 '골드' 버튼이 렌더링될 때까지 순수 DOM으로 대기
+  await page.waitForFunction(
+    () => {
+      const modal = document.querySelector("wcm-modal");
+      if (!modal) return false;
+      return Array.from(modal.querySelectorAll("button")).some(
+        (b) => b.textContent.trim() === "골드"
+      );
+    },
     { timeout: 5000 }
   );
-  const txt = await page.$eval(
-    ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span",
-    (el) => el.textContent
-  );
-  // "1,195,000 BGSC" 에서 숫자만 추출
-  const num = parseInt(txt.replace(/[^0-9]/g, ""), 10);
-  if (isNaN(num)) throw new Error(`가격 파싱 실패: "${txt}"`);
-  return num;
+  console.log("✔️ 필터 모달 열림");
 }
 
+// ----------------------------------
+// 희귀도 버튼 클릭
+async function clickRarityFilter(label) {
+  await page.evaluate((lbl) => {
+    const modal = document.querySelector("wcm-modal");
+    if (!modal) return;
+    const btn = Array.from(modal.querySelectorAll("button")).find(
+      (b) => b.textContent.trim() === lbl
+    );
+    btn?.click();
+  }, label);
+  console.log(`✔️ "${label}" 버튼 클릭됨`);
+}
+
+// ----------------------------------
 // 한 사이클 검사
 async function checkOnce() {
   console.log("🚀 checkOnce 시작");
   try {
-    // 페이지 이동
     await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 0 });
 
     for (const grade of GRADES) {
-      console.log(`▶️ ${grade} 검사`);
-      try {
-        // 필터 클릭
-        await clickInlineRarityFilter(grade);
-        // 첫 매물 가격 읽기
-        const price = await getFirstPrice();
-        console.log(`${grade} 첫 매물 가격: ${price.toLocaleString()} BGSC`);
+      console.log(`▶️ ${grade} 검사 시작`);
 
-        // 알림 조건 충족 시 Telegram 전송
-        if (
-          price > 0 &&
-          price <= PRICE_THRESHOLD &&
-          notified[grade] !== price
-        ) {
-          const msg = `[알림] ${grade} 등급 NFT ${price.toLocaleString()} BGSC 감지됨`;
-          await sendTelegramMessage(msg);
-          notified[grade] = price;
-          break; // 낮은 등급부터 순서대로 검사하므로, 알림 후 루프 탈출
-        }
-      } catch (e) {
-        console.error(`${grade} 검사 중 오류:`, e.message);
+      // 1) 모달 열기
+      await openFilterModal();
+
+      // 2) 버튼 클릭
+      await clickRarityFilter(grade);
+
+      // 3) 첫 매물이 로드될 때까지 기다리기 (순수 DOM)
+      await page.waitForFunction(
+        () =>
+          !!document.querySelector(
+            ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span"
+          ),
+        { timeout: 5000 }
+      );
+
+      // 4) 첫 매물 가격 읽어오기
+      const priceText = await page.$eval(
+        ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span",
+        (el) => el.textContent.replace(/[^0-9]/g, "")
+      );
+      const price = parseInt(priceText, 10);
+      console.log(`🔖 ${grade} 첫 매물 가격: ${price.toLocaleString()} BGSC`);
+
+      // 5) 기준 이하이면 알림
+      if (price > 0 && price <= PRICE_THRESHOLD && notified[grade] !== price) {
+        const msg = `[알림] ${grade} 등급 첫 매물 ${price.toLocaleString()} BGSC 감지됨`;
+        await sendTelegramMessage(msg);
+        notified[grade] = price;
+        break; // 하나 알림 보냈으면 다음 사이클까지 대기
       }
     }
   } catch (e) {
-    console.error("checkOnce 전체 오류:", e);
+    console.error("❌ 체크 중 오류:", e);
   }
 }
 
@@ -112,7 +119,7 @@ async function checkOnce() {
   });
   page = await browser.newPage();
 
-  // 초기 한 번
+  // 처음 한 번
   await checkOnce();
 
   // 이후 주기적 실행
