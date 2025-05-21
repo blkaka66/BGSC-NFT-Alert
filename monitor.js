@@ -7,12 +7,12 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const CHECK_INTERVAL_MS = 5000;
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
-const PRICE_THRESHOLD = 10_000_000;
+const PRICE_THRESHOLD = 1_000_000;
 
 let browser, page;
 const notified = {};
 
-/** Telegram 메시지 전송 */
+// Telegram 메시지 전송
 async function sendTelegramMessage(message) {
   try {
     await axios.post(
@@ -24,46 +24,56 @@ async function sendTelegramMessage(message) {
   }
 }
 
-/** 필터 패널 한 번만 열기 */
+// 필터 패널 한 번만 열기 (page.$x 제거)
 async function ensureFilterOpen() {
   const isOpen = await page
-    .$eval(".filter-panel", (el) => el.classList.contains("open"))
+    .$eval(".filter-panel.open", () => true)
     .catch(() => false);
 
   if (!isOpen) {
-    const btn = await page.$x(`//button[normalize-space()="필터"]`);
-    if (btn[0]) {
-      await btn[0].click();
-      await page.waitForSelector(".filter-panel.open", { timeout: 5000 });
-      console.log("필터 패널 열림");
-    } else {
-      console.warn("필터 버튼을 찾지 못함");
+    const clicked = await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll("button")).find(
+        (b) => b.textContent.trim() === "필터"
+      );
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    if (!clicked) {
+      console.warn("⚠️ 필터 버튼을 찾지 못함");
+      return;
     }
+    await page.waitForSelector(".filter-panel.open", { timeout: 5000 });
+    console.log("필터 패널 열림");
   }
 }
 
-/** 무한 스크롤로 전체 로드 */
+// 무한 스크롤로 전체 아이템 로드
 async function scrollToEnd() {
   await page.evaluate(async () => {
     const sc = document.querySelector(".nft-list-container");
-    let prev = 0;
-    while (sc.scrollHeight !== prev) {
-      prev = sc.scrollHeight;
+    let prevHeight = 0;
+    while (sc.scrollHeight !== prevHeight) {
+      prevHeight = sc.scrollHeight;
       sc.scrollTop = sc.scrollHeight;
       await new Promise((r) => setTimeout(r, 500));
     }
   });
 }
 
-/** 희귀도 필터 클릭 */
+// 희귀도 필터 클릭 (evaluate 내부에서 처리)
 async function clickRarityFilter(label) {
   await page.evaluate((lbl) => {
-    const h2 = [...document.querySelectorAll("h2")].find((el) =>
+    const h2 = Array.from(document.querySelectorAll("h2")).find((el) =>
       el.textContent.includes("희귀도 필터")
     );
     const btn = h2?.nextElementSibling
       .querySelectorAll("button")
-      .find((b) => b.textContent.trim() === lbl);
+      .item(
+        Array.from(h2.nextElementSibling.querySelectorAll("button")).findIndex(
+          (b) => b.textContent.trim() === lbl
+        )
+      );
     btn?.click();
   }, label);
   await page
@@ -72,7 +82,7 @@ async function clickRarityFilter(label) {
   console.log(`${label} 버튼 클릭됨`);
 }
 
-/** 가격 검사 후 알림 */
+// 가격 검사 후 알림
 async function checkPricesAndNotify(grade) {
   const prices = await page.$$eval(
     ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span",
