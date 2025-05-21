@@ -52,6 +52,9 @@ async function clickGradeButton(grade) {
     const buttons = Array.from(
       h2.nextElementSibling.querySelectorAll("button")
     );
+    const allLabels = buttons.map((btn) => btn.textContent.trim());
+    console.log("[디버깅] 희귀도 필터 내 버튼들:", allLabels);
+
     const target = buttons.find((btn) => btn.textContent.trim() === grade);
     if (target) {
       target.click();
