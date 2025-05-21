@@ -4,10 +4,10 @@ const axios = require("axios");
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const CHECK_INTERVAL = 3000; // 3초
+const CHECK_INTERVAL = 3000; // 3초마다
 const TARGET_URL = "https://bugsnft.com/exchange";
 const GRADES = ["골드", "플래티넘", "다이아몬드"];
-const PRICE_THRESHOLD = 10_000_000;
+const PRICE_THRESHOLD = 10_000_000; // 10,000,000 BGSC 이하 알림
 
 let browser, page;
 const notified = {}; // { grade: lastNotifiedPrice }
@@ -18,36 +18,39 @@ async function sendTelegramMessage(message) {
   try {
     await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message });
   } catch (err) {
-    console.error("텔레그램 전송 실패:", err.message);
+    console.error("텔레그램 전송 오류:", err.message);
   }
 }
 
-/** 딜레이 헬퍼 */
+/** 간단한 딜레이 */
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-/** 필터 토글 버튼 클릭 (열려 있으면 닫히고, 닫혀 있으면 열린다) */
+/** “필터” 토글 버튼 클릭 (한 사이클에 단 한 번만 호출) */
 async function clickFilterToggle() {
   const ok = await page.evaluate(() => {
-    const btn = [...document.querySelectorAll("button")].find(
+    const btn = Array.from(document.querySelectorAll("button")).find(
       (b) => b.textContent.trim() === "필터"
     );
     if (!btn) return false;
     btn.click();
     return true;
   });
-  console.log(ok ? "✔️ 필터 패널 열림" : "⚠️ 필터 버튼 없음");
+  console.log(ok ? "✔️ 필터 패널 열림" : "⚠️ 필터 패널 열림 실패");
   return ok;
 }
 
-/** 희귀도 필터 버튼 클릭 */
+/**
+ * 희귀도 필터에서 label(예: “골드”) 버튼을 찾아 클릭
+ */
 async function clickRarityFilter(label) {
   const clicked = await page.evaluate((label) => {
-    // 필터 패널 안에서 라벨이 정확히 일치하는 버튼 찾기
-    const btn = [
-      ...document.querySelectorAll(".wcm-wallet-icon-border-radius button"),
-      ...document.querySelectorAll("button"),
-    ].find((b) => b.textContent.trim() === label);
-
+    const h2 = Array.from(document.querySelectorAll("h2")).find((el) =>
+      el.textContent.includes("희귀도 필터")
+    );
+    if (!h2?.nextElementSibling) return false;
+    const btn = Array.from(
+      h2.nextElementSibling.querySelectorAll("button")
+    ).find((b) => b.textContent.trim() === label);
     if (!btn) return false;
     btn.click();
     return true;
@@ -59,23 +62,24 @@ async function clickRarityFilter(label) {
   return clicked;
 }
 
-/** 가격 읽어와서 알림 */
+/** 해당 등급 화면의 가격들 검사 및 알림 */
 async function checkPricesAndNotify(grade) {
-  // 화면에 보이는 모든 가격 span에서 BGSC 텍스트 걸러내기
+  // 모든 price span 을 로드해서 숫자만 파싱
   const prices = await page.$$eval(".enhanced-nft-price span", (spans) =>
     spans
       .map((s) => s.textContent.trim())
       .filter((t) => t.includes("BGSC"))
       .map((t) => parseInt(t.replace(/[^0-9]/g, ""), 10))
   );
-  console.log(`${grade} 단계 가격 목록: [${prices.join(", ")}]`);
+
+  console.log(`${grade} 단계 가격 목록:`, prices);
 
   for (const price of prices) {
     if (price > 0 && price <= PRICE_THRESHOLD && notified[grade] !== price) {
       const msg = `[알림] ${grade} 등급 NFT ${price.toLocaleString()} BGSC 감지됨`;
       await sendTelegramMessage(msg);
       notified[grade] = price;
-      console.log(`🔔 ${msg}`);
+      console.log(msg);
       return true;
     }
   }
@@ -90,28 +94,32 @@ async function checkOnce() {
       timeout: 0,
     });
 
+    // 1) 필터 패널 열기
+    if (!(await clickFilterToggle())) return;
+    await delay(1000);
+
+    // 2) 등급별 순차 클릭 → 로드 대기 → 가격 검사
     for (const grade of GRADES) {
-      // 1) 필터 패널 열기
-      if (!(await clickFilterToggle())) return;
+      if (!(await clickRarityFilter(grade))) {
+        // 클릭 실패해도 다음 등급으로
+        continue;
+      }
 
-      // 2) 클릭 후 리스트 로딩 대기
-      await delay(1000);
-
-      // 3) 등급 버튼 클릭
-      if (!(await clickRarityFilter(grade))) continue;
-
-      // 4) NFT 카드가 그레이드 필터 후 갱신될 때까지 대기
-      await page.waitForSelector(".enhanced-nft-card", { timeout: 5000 });
+      // 카드가 최소 하나는 로드될 때까지 대기
+      await page.waitForSelector(".enhanced-nft-card", {
+        timeout: 5000,
+      });
       await delay(500);
 
-      // 5) 가격 검사 & 알림
-      if (await checkPricesAndNotify(grade)) {
-        // 알림 보냈으면 이 사이클 종료
-        return;
-      }
+      // 가격 검사 및 알림
+      const found = await checkPricesAndNotify(grade);
+      if (found) break; // 알림 보냈으면 남은 등급은 스킵
     }
+
+    // 3) 새로고침 후 다음 사이클 준비
+    await page.reload({ waitUntil: "networkidle2", timeout: 0 });
   } catch (err) {
-    console.error("체크 중 오류:", err.message);
+    console.error("체크 중 오류:", err);
   }
 }
 
@@ -122,7 +130,7 @@ async function checkOnce() {
   });
   page = await browser.newPage();
 
-  // 초기 한 번
+  // 초기 실행
   await checkOnce();
   // 주기 실행
   setInterval(checkOnce, CHECK_INTERVAL);
