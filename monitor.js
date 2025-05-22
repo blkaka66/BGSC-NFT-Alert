@@ -122,8 +122,8 @@ async function checkOnce() {
     } catch (closeErr) {
       console.warn("⚠️ page.close 실패:", closeErr.message);
     }
-    browser = null;
-    page = null;
+    //browser = null;
+    //page = null;
   }
 }
 
