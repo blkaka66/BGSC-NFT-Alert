@@ -1,3 +1,4 @@
+console.log("✅ monitor.js 시작됨");
 require("dotenv").config();
 const puppeteer = require("puppeteer");
 const axios = require("axios");
@@ -10,7 +11,6 @@ const GRADES = ["골드", "플래티넘", "다이아몬드"];
 const PRICE_THRESHOLD = 10000000;
 
 let browser, page;
-
 
 async function sendTelegramMessage(message) {
   try {
@@ -106,15 +106,12 @@ async function checkOnce() {
       );
       const price = parseInt(firstPriceText, 10);
       console.log("첫 번째 매물 가격:", price); // 예: 1195000
- 
-      
+
       if (price > 0 && price <= PRICE_THRESHOLD) {
         const msg = `[알림] ${grade} 등급 첫 매물 ${price.toLocaleString()} BGSC 감지됨`;
-        console.log(msg)
+        console.log(msg);
         await sendTelegramMessage(msg);
       }
-
-
     }
   } catch (e) {
     console.error("❌ 체크 중 오류:", e.message);
@@ -131,39 +128,43 @@ async function checkOnce() {
 }
 
 (async () => {
-  browser = await puppeteer.launch({
-    headless: true, // 클라우드에서는 headless 모드로 실행
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-gpu",
-      "--disable-dev-shm-usage",
-    ],
-    // executablePath 제거 → Puppeteer가 번들로 제공하는 Chromium 사용
-  });
+  try {
+    browser = await puppeteer.launch({
+      headless: true, // 클라우드에서는 headless 모드로 실행
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+      ],
+      // executablePath 제거 → Puppeteer가 번들로 제공하는 Chromium 사용
+    });
 
-  while (true) {
-    page = await browser.newPage();
+    while (true) {
+      page = await browser.newPage();
 
-    // 봇 차단 회피용 user-agent 설정
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36"
-    );
+      // 봇 차단 회피용 user-agent 설정
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36"
+      );
 
-    try {
-      await checkOnce();
-    } catch (e) {
-      console.error("❌ checkOnce 내부 에러:", e.message);
-    } finally {
-      if (page && !page.isClosed()) {
-        try {
-          await page.close();
-        } catch (closeErr) {
-          console.warn("⚠️ page.close 실패:", closeErr.message);
+      try {
+        await checkOnce();
+      } catch (e) {
+        console.error("❌ checkOnce 내부 에러:", e.message);
+      } finally {
+        if (page && !page.isClosed()) {
+          try {
+            await page.close();
+          } catch (closeErr) {
+            console.warn("⚠️ page.close 실패:", closeErr.message);
+          }
         }
       }
-    }
 
-    await new Promise((res) => setTimeout(res, CHECK_INTERVAL_MS));
+      await new Promise((res) => setTimeout(res, CHECK_INTERVAL_MS));
+    }
+  } catch (err) {
+    console.error("❌ monitor.js 실행 중 에러:", err);
   }
 })();
