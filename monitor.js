@@ -1,4 +1,5 @@
 console.log("✅ monitor.js 시작됨");
+let count = 0;
 require("dotenv").config();
 const puppeteer = require("puppeteer");
 const axios = require("axios");
@@ -86,7 +87,9 @@ async function checkOnce() {
     }
     await openFilterModal();
     for (const grade of GRADES) {
-      console.log(`▶️ ${grade} 검사 시작`);
+      count++;
+
+      console.log(`▶️ ${grade} 검사 시작, count:`,count);
 
       await clickRarityFilter(grade);
       await new Promise((r) => setTimeout(r, 1000));
