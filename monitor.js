@@ -136,7 +136,7 @@ async function checkOnce() {
 
     while (true) {
       // 브라우저 재시작 조건
-      if (count >= 10) {
+      if (count >= 7000) {
         console.log("🔄 count가 7000 도달, 브라우저 재시작");
         try {
           if (browser && browser.connected) {
