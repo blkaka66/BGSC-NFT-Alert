@@ -29,15 +29,6 @@ async function openFilterModal() {
   await new Promise((r) => setTimeout(r, 500));
 }
 
-// async function closeFilterModal() {
-//   try {
-//     await page.keyboard.press("Escape");
-//     await new Promise((r) => setTimeout(r, 500));
-//   } catch (e) {
-//     console.warn("모달 닫기 중 오류:", e.message);
-//   }
-// }
-
 async function clickRarityFilter(label) {
   await page.waitForFunction(
     (lbl) => {
@@ -89,7 +80,7 @@ async function checkOnce() {
     for (const grade of GRADES) {
       count++;
 
-      console.log(`▶️ ${grade} 검사 시작, count:`,count);
+      console.log(`▶️ ${grade} 검사 시작, count:`, count);
 
       await clickRarityFilter(grade);
       await new Promise((r) => setTimeout(r, 1000));
@@ -130,43 +121,69 @@ async function checkOnce() {
   }
 }
 
-(async () => { try {
-  browser = await puppeteer.launch({
-    headless: true, // 클라우드에서는 headless 모드로 실행
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-gpu",
-      "--disable-dev-shm-usage",
-    ],
-    // executablePath 제거 → Puppeteer가 번들로 제공하는 Chromium 사용
-  });
+(async () => {
+  try {
+    browser = await puppeteer.launch({
+      headless: true, // 클라우드에서는 headless 모드로 실행
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+      ],
+      // executablePath 제거 → Puppeteer가 번들로 제공하는 Chromium 사용
+    });
 
-  while (true) {
-    page = await browser.newPage();
-
-    // 봇 차단 회피용 user-agent 설정
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36"
-    );
-
-    try {
-      await checkOnce();
-    } catch (e) {
-      console.error("❌ checkOnce 내부 에러:", e.message);
-    } finally {
-      if (page && !page.isClosed()) {
+    while (true) {
+      // 브라우저 재시작 조건
+      if (count >= 10) {
+        console.log("🔄 count가 7000 도달, 브라우저 재시작");
         try {
-          await page.close();
-        } catch (closeErr) {
-          console.warn("⚠️ page.close 실패:", closeErr.message);
+          if (browser && browser.connected) {
+            await browser.close();
+
+            console.log("♻️ 브라우저 정상 종료됨");
+          }
+        } catch (e) {
+          console.warn("⚠️ 브라우저 닫기 실패:", e.message);
+        }
+
+        browser = await puppeteer.launch({
+          headless: true,
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+          ],
+        });
+        count = 0;
+        console.log("♻️ 초기화 완료, 브라우저 재시작 후 count 리셋");
+      }
+      page = await browser.newPage();
+
+      // 봇 차단 회피용 user-agent 설정
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36"
+      );
+
+      try {
+        await checkOnce();
+      } catch (e) {
+        console.error("❌ checkOnce 내부 에러:", e.message);
+      } finally {
+        if (page && !page.isClosed()) {
+          try {
+            await page.close();
+          } catch (closeErr) {
+            console.warn("⚠️ page.close 실패:", closeErr.message);
+          }
         }
       }
-    }
 
-    await new Promise((res) => setTimeout(res, CHECK_INTERVAL_MS));
+      await new Promise((res) => setTimeout(res, CHECK_INTERVAL_MS));
+    }
+  } catch (err) {
+    console.error("❌ monitor.js 실행 중 에러:", err);
   }
-} catch (err) {
-  console.error("❌ monitor.js 실행 중 에러:", err);
-}
 })();
