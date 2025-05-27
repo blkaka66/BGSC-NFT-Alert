@@ -158,6 +158,7 @@ async function checkOnce() {
           ],
         });
         count = 0;
+        firstRun = true;
         console.log("♻️ 초기화 완료, 브라우저 재시작 후 count 리셋");
       }
       page = await browser.newPage();
