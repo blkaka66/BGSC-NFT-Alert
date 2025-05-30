@@ -90,7 +90,7 @@ async function checkOnce() {
           !!document.querySelector(
             ".enhanced-nft-card:not(.skeleton) .enhanced-nft-price span"
           ),
-        { timeout: 30000 }
+        { timeout: 3000 }
       );
 
       // 2. 가격 문자열 추출 & 숫자만 남기기
